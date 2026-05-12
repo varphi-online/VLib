@@ -43,3 +43,5 @@ while (( $# > 0 )); do
 done
 
 printf '#endif /* %s */\n' "$impl_macro" >> "$out"
+
+sed -i "/#include \"$header\"/d" "$out"

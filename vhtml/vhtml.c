@@ -177,20 +177,23 @@ static void* arena_alloc(VHTMLArena *arena, size_t size, size_t alignment){
 	
     if (used + size > chunk->size) {
         // 1. Try to reuse an existing downstream chunk
-        if (chunk->next && size <= chunk->next->size) {
-            arena->tail = chunk->next;
-            chunk = chunk->next;
-            chunk->used = 0;
-        } else {
-            // 2. Need a fresh chunk — splice it in
-            size_t nsz = (size > chunk->size) ? size * 2 : chunk->size;
-            struct VHTMLArenaChunk *new_chunk = chunk_init(nsz);
-            if (!new_chunk) return NULL;
-            //new_chunk->next = chunk->next;   // preserve the rest of the chain
-            chunk->next = new_chunk;
-            arena->tail = new_chunk;
-            chunk = new_chunk;
-        }
+		struct VHTMLArenaChunk *probe = chunk->next;
+		while (probe && size > probe->size) probe = probe->next;
+		if (probe) {
+		    arena->tail = probe;
+		    chunk = probe;
+		    chunk->used = 0;
+		} else {
+		    // splice on the actual end of chain
+		    struct VHTMLArenaChunk *end = chunk;
+		    while (end->next) end = end->next;
+		    size_t nsz = (size > chunk->size) ? size * 2 : chunk->size;
+		    struct VHTMLArenaChunk *new_chunk = chunk_init(nsz);
+		    if (!new_chunk) return NULL;
+		    end->next = new_chunk;
+		    arena->tail = new_chunk;
+		    chunk = new_chunk;
+		}
         used = align_up(chunk->used, alignment ? alignment : alignof(max_align_t));
     }
 
@@ -325,6 +328,7 @@ VHTMLNode* create_element(char *name, VHTMLArena *arena){
 
 // TODO:
 /*
+
 VHTMLDocument* create_document(){
 	VHTMLDocument *doc = VHTML_CALLOC(1, sizeof(VHTMLDocument));
 	if(!doc) return 0;
@@ -547,7 +551,10 @@ parse:
 					for(;;){
 						char *end = strchr(*buf, quote_type);
 						if (end) {
-							if(*(end - 1) == '\\') continue;
+							if(*(end - 1) == '\\'){
+								(*buf)++;
+								continue;
+							}
 							curr_value = *buf;
 							*buf = end;
 							break;
@@ -761,6 +768,7 @@ VHTMLDocument* document_from_string(VHTMLArena *arena, char *str){
 	doc->allocation = arena;
 	doc->root = create_element_t(_VHTMLTAG_ROOT, arena);
 	doc->raw_buf = strdup(str);
+	doc->owns_allocations = owned_arena;
 
 	parse_node(arena, doc->raw_buf, doc->root);
 
@@ -770,6 +778,7 @@ cleanup:
 	if(doc){
 		if(doc->allocation) arena_free(doc->allocation);
 		if(doc->raw_buf) VHTML_FREE(doc->raw_buf);
+		if(doc->owns_allocations) arena_free(doc->allocation);
 		VHTML_FREE(doc);
 	}
 	return NULL;

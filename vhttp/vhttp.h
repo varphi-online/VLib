@@ -1,107 +1,106 @@
-#ifndef HTTP_H
-#define HTTP_H
+#ifndef VHTTP_H
+#define VHTTP_H
 
 #include <netdb.h>
 #include <stdbool.h>
 #include <sys/socket.h>
 
-enum http_method {
-  GET,
-  HEAD,
-  POST,
-  OPTIONS,
-  TRACE,
-  PUT,
-  DELETE,
-  PATCH,
-  CONNECT,
-  LINK,
-  UNLINK
+enum vhttp_method {
+  VHTTPMETHOD_GET,
+  VHTTPMETHOD_HEAD,
+  VHTTPMETHOD_POST,
+  VHTTPMETHOD_OPTIONS,
+  VHTTPMETHOD_TRACE,
+  VHTTPMETHOD_PUT,
+  VHTTPMETHOD_DELETE,
+  VHTTPMETHOD_PATCH,
+  VHTTPMETHOD_CONNECT,
+  VHTTPMETHOD_LINK,
+  VHTTPMETHOD_UNLINK
 };
 
-extern const char *const http_method_str[];
+extern const char *const vhttp_method_str[];
 
-enum http_version {
-  HTTP_0_9,
-  HTTP_1_0,
-  HTTP_1_1,
-  HTTP_2_0,
-  HTTP_3_0,
+enum vhttp_version {
+  VHTTP_0_9,
+  VHTTP_1_0,
+  VHTTP_1_1,
+  VHTTP_2_0,
+  VHTTP_3_0,
 };
 
-extern const char *const http_version_str[];
+extern const char *const vhttp_version_str[];
 
-typedef struct http_request_line {
-  enum http_method method;
+typedef struct vhttp_request_line {
+  enum vhttp_method method;
   char *request_uri;
-  enum http_version http_version;
-} http_request_line;
+  enum vhttp_version vhttp_version;
+} vhttp_request_line;
 
-/* HTTP */
-typedef struct http_header {
+/* VHTTP */
+typedef struct vhttp_header {
   char *key;
   char *value;
-  struct http_header *next;
-} http_header;
+  struct vhttp_header *next;
+} vhttp_header;
 
-typedef struct http_request_headers {
-  struct http_header *head;
-  struct http_header *tail;
+typedef struct vhttp_request_headers {
+  struct vhttp_header *head;
+  struct vhttp_header *tail;
   size_t size;
   char *_header_buf;
   int _bufsize;
-} http_request_headers;
+} vhttp_request_headers;
 
-typedef struct http_request {
-  http_request_line *request_line;
-  http_request_headers *headers;
+typedef struct vhttp_request {
+  vhttp_request_line *request_line;
+  vhttp_request_headers *headers;
   char *body;
   int _client_fd;
-} http_request;
+} vhttp_request;
 
-typedef struct http_response {
+typedef struct vhttp_response {
   int status;
   char *headers;
   char *body;
-} http_response;
+} vhttp_response;
 
-typedef struct http_server {
+typedef struct vhttp_server {
   int _socket, _current_accept;
   struct sockaddr_storage _connecting_addr;
   socklen_t _connecting_addr_size;
   struct addrinfo _hints, *res;
-  void (*entrypoint)(http_request *, http_response *, void **);
+  void (*entrypoint)(vhttp_request *, vhttp_response *, void **);
   int concurrent_connections;
   void **context;
-} http_server;
+} vhttp_server;
 
-enum http_status { HTTP_OK = 200, HTTP_NOT_FOUND = 404 };
+enum vhttp_status { VHTTP_OK = 200, VHTTP_NOT_FOUND = 404 };
 
 #define CONTENT_TYPE_TEXT "text/plain"
 #define CONTENT_TYPE_JSON "application/json"
 
-http_server *http_server_init(char *port,
-                             void (*entrypoint)(http_request *, http_response *, void **),
+vhttp_server *vhttp_server_init(char *port,
+                             void (*entrypoint)(vhttp_request *, vhttp_response *, void **),
                              void **context);
 
-// Expects a heap-allocated http_request
+// Expects a heap-allocated vhttp_request
 // Destroys input string
-int http_parse_request(char *request_str, http_request *request);
+int vhttp_parse_request(char *request_str, vhttp_request *request);
 
-void http_server_listen(struct http_server *server);
+void vhttp_server_listen(struct vhttp_server *server);
 
-int http_respond(struct http_response *response, struct http_request *request);
+int vhttp_respond(struct vhttp_request *request, struct vhttp_response *response);
 
-void http_set_response_status(struct http_response *response, int status);
+void vhttp_set_response_status(struct vhttp_response *response, int status);
 
-void http_set_response_header(struct http_response *response, char *key,
+void vhttp_set_response_header(struct vhttp_response *response, char *key,
                               char *value);
-char *http_headers_to_string(struct http_request_headers *headers,
+char *vhttp_headers_to_string(struct vhttp_request_headers *headers,
                              bool pretty_print);
 
 #endif
 #ifdef VHTTP_IMPLEMENTATION
-#include "http.h"
 #include <ctype.h>
 #include <netinet/in.h>
 #include <poll.h>
@@ -112,18 +111,18 @@ char *http_headers_to_string(struct http_request_headers *headers,
 #include <sys/socket.h>
 #include <unistd.h>
 
-const char *const http_method_str[] = {
-    [GET] = "GET",         [HEAD] = "HEAD",    [POST] = "POST",
-    [OPTIONS] = "OPTIONS", [TRACE] = "TRACE",  [PUT] = "PUT",
-    [DELETE] = "DELETE",   [PATCH] = "PATCH",  [CONNECT] = "CONNECT",
-    [LINK] = "LINK",       [UNLINK] = "UNLINK"};
+const char *const vhttp_method_str[] = {
+    [VHTTPMETHOD_GET] = "GET",         [VHTTPMETHOD_HEAD] = "HEAD",    [VHTTPMETHOD_POST] = "POST",
+    [VHTTPMETHOD_OPTIONS] = "OPTIONS", [VHTTPMETHOD_TRACE] = "TRACE",  [VHTTPMETHOD_PUT] = "PUT",
+    [VHTTPMETHOD_DELETE] = "DELETE",   [VHTTPMETHOD_PATCH] = "PATCH",  [VHTTPMETHOD_CONNECT] = "CONNECT",
+    [VHTTPMETHOD_LINK] = "LINK",       [VHTTPMETHOD_UNLINK] = "UNLINK"};
 
-const char *const http_version_str[] = {
-    [HTTP_0_9] = "HTTP/0.9", [HTTP_1_0] = "HTTP/1.0", [HTTP_1_1] = "HTTP/1.1",
-    [HTTP_2_0] = "HTTP/2.0", [HTTP_3_0] = "HTTP/3.0",
+const char *const vhttp_version_str[] = {
+    [VHTTP_0_9] = "HTTP/0.9", [VHTTP_1_0] = "HTTP/1.0", [VHTTP_1_1] = "HTTP/1.1",
+    [VHTTP_2_0] = "HTTP/2.0", [VHTTP_3_0] = "HTTP/3.0",
 };
 
-// https://beej.us/guide/bgnet/pdf/bgnet_usl_c_1.pdf
+// vhttps://beej.us/guide/bgnet/pdf/bgnet_usl_c_1.pdf
 
 // strips whitespace and shifts the body of the string to the
 // front of memory allocated to it
@@ -149,7 +148,7 @@ void strip_whitespace(char *str) {
   }
 }
 
-void free_http_request(http_request *request) {
+void free_vhttp_request(vhttp_request *request) {
   if (request == NULL) {
     return;
   }
@@ -160,9 +159,9 @@ void free_http_request(http_request *request) {
     if (request->headers->_header_buf != NULL) {
       free(request->headers->_header_buf);
     }
-    http_header *current = request->headers->head;
+    vhttp_header *current = request->headers->head;
     while (current != NULL) {
-      http_header *next_node = current->next;
+      vhttp_header *next_node = current->next;
       free(current);
       current = next_node;
     }
@@ -171,10 +170,13 @@ void free_http_request(http_request *request) {
   free(request);
 }
 
-int http_parse_request(char *request_str, http_request *request) {
-  http_request_line *request_line = malloc(sizeof(http_request_line));
+int vhttp_parse_request(char *request_str, vhttp_request *request) {
+	#ifdef DEBUG
+	printf("%s", request_str);
+	#endif
+  vhttp_request_line *request_line = malloc(sizeof(vhttp_request_line));
 
-  http_request_headers *headers = malloc(sizeof(http_request_headers));
+  vhttp_request_headers *headers = malloc(sizeof(vhttp_request_headers));
   // defer allocating the body until we have a Content-Length header
   // or something else
   request->request_line = request_line;
@@ -187,10 +189,10 @@ int http_parse_request(char *request_str, http_request *request) {
 
   char *undef_method = strtok(unparsed_rql, " ");
   bool method_found = false;
-  for (int i = 0; i < (sizeof(http_method_str) / sizeof(http_method_str[0]));
+  for (int i = 0; i < (sizeof(vhttp_method_str) / sizeof(vhttp_method_str[0]));
        i++) {
-    if (strcmp(undef_method, http_method_str[i]) == 0) {
-      request_line->method = (enum http_method)i;
+    if (strcmp(undef_method, vhttp_method_str[i]) == 0) {
+      request_line->method = (enum vhttp_method)i;
       method_found = true;
       break;
     }
@@ -205,17 +207,17 @@ int http_parse_request(char *request_str, http_request *request) {
 
   char *undef_vers = strtok(NULL, "\0");
   bool version_found = false;
-  for (int i = 0; i < (sizeof(http_version_str) / sizeof(http_version_str[0]));
+  for (int i = 0; i < (sizeof(vhttp_version_str) / sizeof(vhttp_version_str[0]));
        i++) {
-    if (strcmp(undef_vers, http_version_str[i]) == 0) {
-      request_line->http_version = (enum http_version)i;
+    if (strcmp(undef_vers, vhttp_version_str[i]) == 0) {
+      request_line->vhttp_version = (enum vhttp_version)i;
       version_found = true;
       break;
     }
   }
 
   if (!version_found) {
-    puts("Invalid request HTTP version");
+    puts("Invalid request VHTTP version");
     return -1;
   }
 
@@ -224,7 +226,7 @@ int http_parse_request(char *request_str, http_request *request) {
   // Begin HEAD parse -------
 
   /* General idea is allocate size equal to the string that contains ALL
-   * headers, then, each http_header in the http_request_headers linked-list
+   * headers, then, each vhttp_header in the vhttp_request_headers linked-list
    * will point to a segment of that allocated memory, with each segment being a
    * null-terminated string. Essentially:
    *
@@ -235,8 +237,8 @@ int http_parse_request(char *request_str, http_request *request) {
    * "Host\0localhost:8080\0..."   // Post-Parse
    * "Host: localhost:8080\r\n..." // Original Malloc/Copy
    *
-   * Via RFC 1945 (HTTP 1.0):
-   * HTTP-header    = field-name ":" [ field-value ] CRLF
+   * Via RFC 1945 (VHTTP 1.0):
+   * VHTTP-header    = field-name ":" [ field-value ] CRLF
    */
 
   char *end_of_headers = strstr(
@@ -256,7 +258,7 @@ int http_parse_request(char *request_str, http_request *request) {
   char *token = strtok(header_buf, ":"); // get key split
   strip_whitespace(token);
 
-  http_header *first = malloc(sizeof(http_header));
+  vhttp_header *first = malloc(sizeof(vhttp_header));
   first->key = token;
   first->next = NULL;
   headers->head = first;
@@ -272,8 +274,8 @@ int http_parse_request(char *request_str, http_request *request) {
     strip_whitespace(token);
     if (!token)
       break;
-    http_header *current =
-        malloc(sizeof(http_header)); // create current with key
+    vhttp_header *current =
+        malloc(sizeof(vhttp_header)); // create current with key
     current->key = token;
     current->next = NULL;
     headers->tail->next = current; // link struct
@@ -286,11 +288,11 @@ int http_parse_request(char *request_str, http_request *request) {
   return 0;
 }
 
-char *http_headers_to_string(struct http_request_headers *headers,
+char *vhttp_headers_to_string(struct vhttp_request_headers *headers,
                              bool pretty_print) {
   int offset = 0;
   char *out = malloc(headers->_bufsize * sizeof(char));
-  http_header *current = headers->head;
+  vhttp_header *current = headers->head;
   while (current != NULL) {
     offset += snprintf(out + offset, headers->_bufsize - offset,
                        pretty_print ? "%s: %s\n" : "{%s:%s},", current->key,
@@ -300,10 +302,10 @@ char *http_headers_to_string(struct http_request_headers *headers,
   return out;
 }
 
-http_server *http_server_init(char *port,
-                             void (*entrypoint)(http_request *, http_response *, void **),
+vhttp_server *vhttp_server_init(char *port,
+                             void (*entrypoint)(vhttp_request *, vhttp_response *, void **),
                              void **context) {
-  http_server *server = calloc(1, sizeof(http_server));
+  vhttp_server *server = calloc(1, sizeof(vhttp_server));
 
   server->concurrent_connections = 1;
 
@@ -369,7 +371,7 @@ void del_from_pfds(struct pollfd pfds[], int i, int *fd_count) {
   (*fd_count)--;
 }
 
-char *http_encode_response(struct http_response *response) {
+char *vhttp_encode_response(struct vhttp_response *response) {
   const char *headers = response->headers ? response->headers : "";
   const char *body = response->body ? response->body : "";
   int len = 0;
@@ -387,16 +389,16 @@ char *http_encode_response(struct http_response *response) {
   return str;
 }
 
-int http_respond(struct http_response *response, struct http_request *request) {
+int vhttp_respond(struct vhttp_request *request, struct vhttp_response *response) {
   if (response->body == NULL)
     return -1;
   char *buf = malloc(sizeof(char) *
                      (snprintf(0, 0, "%ld", strlen(response->body)) + 2));
   sprintf(buf, "%ld", strlen(response->body));
 
-  http_set_response_header(response, "Content-Length", buf);
+  vhttp_set_response_header(response, "Content-Length", buf);
 
-  char *response_string = http_encode_response(response);
+  char *response_string = vhttp_encode_response(response);
 
   int len = strlen(response_string);
 
@@ -415,11 +417,11 @@ int http_respond(struct http_response *response, struct http_request *request) {
   return n == -1 ? -1 : 0;
 }
 
-void http_set_response_status(struct http_response *response, int status) {
+void vhttp_set_response_status(struct vhttp_response *response, int status) {
   response->status = status;
 }
 
-void http_set_response_header(struct http_response *response, char *key,
+void vhttp_set_response_header(struct vhttp_response *response, char *key,
                               char *value) {
   size_t new_line_len = snprintf(NULL, 0, "%s: %s\r\n", key, value);
 
@@ -437,7 +439,7 @@ void http_set_response_header(struct http_response *response, char *key,
   response->headers = new_headers;
 }
 
-void http_server_listen(struct http_server *server) {
+void vhttp_server_listen(struct vhttp_server *server) {
   int conn_count = 0;
   struct pollfd *pfds = malloc(sizeof *pfds * server->concurrent_connections);
 
@@ -472,16 +474,16 @@ void http_server_listen(struct http_server *server) {
             del_from_pfds(pfds, i, &conn_count);
           } else {
             buf[nbytes] = '\0';
-            http_request *request = calloc(1, sizeof(http_request));
+            vhttp_request *request = calloc(1, sizeof(vhttp_request));
 
-            if (http_parse_request(buf, request) != 0) {
-              fprintf(stderr, "Failed to parse HTTP request.\n");
+            if (vhttp_parse_request(buf, request) != 0) {
+              fprintf(stderr, "Failed to parse VHTTP request.\n");
               free(request);
             } else {
               request->_client_fd = _client_fd;
-			  http_response *resp = calloc(1, sizeof(http_response));
+			  vhttp_response *resp = calloc(1, sizeof(vhttp_response));
               server->entrypoint(request, resp, server->context);
-			  free_http_request(request);
+			  free_vhttp_request(request);
 			  free(resp);
             }
 

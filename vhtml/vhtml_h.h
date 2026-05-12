@@ -172,6 +172,7 @@ typedef struct VHTMLDocument {
 	VHTMLNode *root;
 	VHTMLArena *allocation;
 	char *raw_buf;
+	int owns_allocations;
 } VHTMLDocument;
 
 extern const char *const html_element_str[];
