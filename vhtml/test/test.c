@@ -43,7 +43,12 @@ static char *test_str =
 
 
 int main(){
-	VHTMLArena *arena = arena_init(2048);		
+	VHTMLDocument *doc = create_document(0, 0);
+	set_inner_text(doc->allocation, doc->body, "This guy feeds on radiation");
+	puts(serializeDocument(doc, VHTMLPRINT_PRETTY));
+	free_document(doc);
+	
+	/*VHTMLArena *arena = arena_init(2048);		
 	char *dup = strdup(test_str);
 	puts("Expected:");
 	puts(dup);
@@ -53,7 +58,7 @@ int main(){
 	printNode(node, VHTMLPRINT_PRETTY);
 	printNode(node, VHTMLPRINT_COMPACT);
 	free(dup);
-	arena_free(arena);
+	arena_free(arena);*/
 }
 
 

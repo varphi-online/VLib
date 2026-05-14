@@ -102,7 +102,7 @@ int main(int argc, char **argv){
 	for(int i = 0; i<count; i++){
 		if(test) free_document(test);
 		arena_reset(arena);
-		test = document_from_string(arena, strs[i]);
+		test = create_document(arena, strs[i]);
 		x ^= (uintptr_t)test;
 	}
 	clock_gettime(CLOCK_MONOTONIC, &end);

@@ -106,7 +106,7 @@ typedef enum {
 
 	VHTMLATTR_XMLNS, VHTMLATTR_XMLNS_XLINK,
 
-	VHTMLATTR_DATA_CUST,
+	VHTMLATTR_DATA_CUST, VHTMLATTR_HTML,
 	_VHTML_ATTRIBUTE_COUNT
 } VHTMLAttribute_t;
 
@@ -157,9 +157,8 @@ typedef struct VHTMLUnknownAttribute {
 typedef struct VHTMLNode {
 	VHTMLTag_t type;
 	struct VHTMLNode *children;
-	struct VHTMLNode *_children_tail;
+	struct VHTMLNode *last_child;
 	struct VHTMLNode *parent;
-	char *textContent;
 	struct VHTMLAttribute *attributes;
 	struct VHTMLDataAttribute *data_attrs;
 	struct VHTMLNamespacedAttribute *ns_attrs;
@@ -173,6 +172,7 @@ typedef struct VHTMLDocument {
 	VHTMLArena *allocation;
 	char *raw_buf;
 	int owns_allocations;
+	VHTMLNode *body;
 } VHTMLDocument;
 
 extern const char *const html_element_str[];
@@ -180,16 +180,15 @@ extern const char *const html_attribute_str[];
 
 VHTMLNode* create_element_t(VHTMLTag_t type, VHTMLArena *arena);
 VHTMLNode* create_element(char *name, VHTMLArena *arena);
-VHTMLNode* parse_node(VHTMLArena *arena, char *buf, VHTMLNode *parent);
+VHTMLNode* parse_node(char *buf, VHTMLNode *parent, VHTMLArena *arena);
 
 // Sets an attribute to some heap/arena allocated value for some node, 0 implying a
 // boolean attribute's existence. Thus, it may be undone with the unset_attr function
-VHTMLAttribute* set_attr(VHTMLArena *arena, VHTMLNode *node, VHTMLAttribute_t attribute, char *value);
+VHTMLAttribute* set_attr(VHTMLNode *node, VHTMLAttribute_t attribute, char *value, VHTMLArena *arena);
 void unset_attr(VHTMLNode *node, VHTMLAttribute_t attribute);
 char* get_attr(VHTMLNode *node, VHTMLAttribute_t attribute);
 
-VHTMLDocument* document_from_string(VHTMLArena *arena, char *str);
-VHTMLDocument* create_document();
+VHTMLDocument* create_document(char *str, VHTMLArena *arena);
 void free_document(VHTMLDocument *doc);
 
 enum VHTMLPrintFormat {
@@ -201,6 +200,11 @@ enum VHTMLPrintFormat {
 void printNode(VHTMLNode *node, enum VHTMLPrintFormat fmt);
 char *serializeNode(VHTMLNode *node, enum VHTMLPrintFormat fmt);
 
+
+VHTMLNode *append_child(VHTMLNode *parent, VHTMLNode *child);
+VHTMLNode *set_inner_html(VHTMLNode *parent, char *str, VHTMLArena *arena);
+VHTMLNode *set_inner_text(VHTMLNode *parent, char *str, VHTMLArena *arena);
+char *get_text_content(VHTMLNode *node, VHTMLArena *arena);
 
 char *serializeDocument(VHTMLDocument *doc, enum VHTMLPrintFormat fmt);
 #endif

@@ -106,7 +106,7 @@ typedef enum {
 
 	VHTMLATTR_XMLNS, VHTMLATTR_XMLNS_XLINK,
 
-	VHTMLATTR_DATA_CUST,
+	VHTMLATTR_DATA_CUST, VHTMLATTR_HTML,
 	_VHTML_ATTRIBUTE_COUNT
 } VHTMLAttribute_t;
 
@@ -157,9 +157,8 @@ typedef struct VHTMLUnknownAttribute {
 typedef struct VHTMLNode {
 	VHTMLTag_t type;
 	struct VHTMLNode *children;
-	struct VHTMLNode *_children_tail;
+	struct VHTMLNode *last_child;
 	struct VHTMLNode *parent;
-	char *textContent;
 	struct VHTMLAttribute *attributes;
 	struct VHTMLDataAttribute *data_attrs;
 	struct VHTMLNamespacedAttribute *ns_attrs;
@@ -173,6 +172,7 @@ typedef struct VHTMLDocument {
 	VHTMLArena *allocation;
 	char *raw_buf;
 	int owns_allocations;
+	VHTMLNode *body;
 } VHTMLDocument;
 
 extern const char *const html_element_str[];
@@ -188,8 +188,7 @@ VHTMLAttribute* set_attr(VHTMLArena *arena, VHTMLNode *node, VHTMLAttribute_t at
 void unset_attr(VHTMLNode *node, VHTMLAttribute_t attribute);
 char* get_attr(VHTMLNode *node, VHTMLAttribute_t attribute);
 
-VHTMLDocument* document_from_string(VHTMLArena *arena, char *str);
-VHTMLDocument* create_document();
+VHTMLDocument* create_document(VHTMLArena *arena, char *str);
 void free_document(VHTMLDocument *doc);
 
 enum VHTMLPrintFormat {
@@ -201,6 +200,11 @@ enum VHTMLPrintFormat {
 void printNode(VHTMLNode *node, enum VHTMLPrintFormat fmt);
 char *serializeNode(VHTMLNode *node, enum VHTMLPrintFormat fmt);
 
+
+VHTMLNode *append_child(VHTMLNode *parent, VHTMLNode *child);
+VHTMLNode *set_inner_html(VHTMLArena *arena, VHTMLNode *parent, char *str);
+VHTMLNode *set_inner_text(VHTMLArena *arena, VHTMLNode *parent, char *str);
+char *get_text_content(VHTMLNode *node, VHTMLArena *arena);
 
 char *serializeDocument(VHTMLDocument *doc, enum VHTMLPrintFormat fmt);
 #endif
@@ -733,7 +737,7 @@ lookup_htmltag (register const char *str, register size_t len)
 struct VHTMLAttribute_st;
 #include <string.h>
 
-#define TOTAL_KEYWORDS 174
+#define TOTAL_KEYWORDS 175
 #define MIN_WORD_LENGTH 2
 #define MAX_WORD_LENGTH 19
 #define MIN_HASH_VALUE 12
@@ -755,11 +759,11 @@ html_attribute_hash (register const char *str, register size_t len)
       490, 490, 490, 490, 490, 490, 490, 490, 490, 490,
       490, 490, 490, 490, 490, 490, 490, 490, 490, 490,
       490, 490, 490, 490, 490, 490, 490, 490, 490, 490,
-      490, 490, 490, 490, 490, 490, 490, 490, 490, 490,
+      490, 490,  20, 490, 490, 490, 490, 490, 490, 490,
       490, 490, 490, 490, 490,   0, 490, 490, 490, 490,
       490, 490, 490, 490, 490, 490, 490, 490, 490, 490,
       490, 490, 490, 490, 490, 490, 490, 490, 490, 490,
-      490, 490, 490, 490, 490, 490, 490, 490, 490, 490,
+      490, 490, 490, 490, 490, 490,  15, 490, 490, 490,
       490, 490, 490, 490, 490, 490, 490, 490, 490, 490,
       490, 490, 490, 490, 490, 490, 490,  40,  75,  50,
         5,  10, 150,  70, 165,   5, 490, 200,  60,   5,
@@ -1084,7 +1088,8 @@ lookup_htmlattr (register const char *str, register size_t len)
       {""}, {""}, {""},
 #line 73 "attributes.gperf"
       {"low", VHTMLATTR_LOW},
-      {""},
+#line 194 "attributes.gperf"
+      {"html VHTMLATTR_HTML"},
 #line 40 "attributes.gperf"
       {"contenteditable", VHTMLATTR_CONTENTEDITABLE},
 #line 122 "attributes.gperf"
@@ -1291,7 +1296,7 @@ lookup_htmlattr (register const char *str, register size_t len)
     }
   return (struct VHTMLAttribute_st *) 0;
 }
-#line 194 "attributes.gperf"
+#line 195 "attributes.gperf"
 
 #include <stdalign.h>
 #include <stdalign.h>
@@ -1578,7 +1583,7 @@ const char *const html_attribute_str[_VHTML_ATTRIBUTE_COUNT] = {
 	[VHTMLATTR_SPELLCHECK] = "spellcheck", [VHTMLATTR_SRC] = "src", [VHTMLATTR_SRCDOC] = "srcdoc", [VHTMLATTR_SRCLANG] = "srclang", [VHTMLATTR_SRCSET] = "srcset", 
 	[VHTMLATTR_START] = "start", [VHTMLATTR_STEP] = "step", [VHTMLATTR_STYLE] = "style", [VHTMLATTR_TABINDEX] = "tabindex", [VHTMLATTR_TARGET] = "target", [VHTMLATTR_TITLE] = "title", 
 	[VHTMLATTR_TRANSLATE] = "translate", [VHTMLATTR_TYPE] = "type", [VHTMLATTR_USEMAP] = "usemap", [VHTMLATTR_VALUE] = "value", [VHTMLATTR_WIDTH] = "width", [VHTMLATTR_WRAP] = "wrap",
-	[VHTMLATTR_XMLNS] = "xmlns", [VHTMLATTR_XMLNS_XLINK] = "xmlns:xlink"
+	[VHTMLATTR_XMLNS] = "xmlns", [VHTMLATTR_XMLNS_XLINK] = "xmlns:xlink", [VHTMLATTR_HTML] = "html"
 };
 
 const int void_tags[_VHTML_TAG_COUNT] = { //FIXME: Fill this out
@@ -1620,20 +1625,8 @@ VHTMLNode* create_element(char *name, VHTMLArena *arena){
 	return create_element_t(html_tag_from_str(name), arena);
 }
 
-// TODO:
-/*
-
-VHTMLDocument* create_document(){
-	VHTMLDocument *doc = VHTML_CALLOC(1, sizeof(VHTMLDocument));
-	if(!doc) return 0;
-	VHTMLArena *arena = arena_init(100); // TODO too small
-	doc->allocation = arena;
-	doc->root = create_element_t(VHTMLTAG_HEAD, arena);
-	return doc;
-}
-*/
-
 VHTMLAttribute* set_attr(VHTMLArena *arena, VHTMLNode *node, VHTMLAttribute_t attribute, char *value){
+	if(!node) return NULL;
 	VHTMLAttribute* curr = node->attributes;
 	if(curr){
 		while(curr->type != attribute && curr->next) curr = curr->next;
@@ -1644,6 +1637,7 @@ VHTMLAttribute* set_attr(VHTMLArena *arena, VHTMLNode *node, VHTMLAttribute_t at
 	}
 
 	VHTMLAttribute* new_attr = arena_alloc(arena, sizeof(VHTMLAttribute), alignof(VHTMLAttribute));
+	if(!new_attr) return NULL;
 	*new_attr = (VHTMLAttribute){0};
 	new_attr->type = attribute;
 	new_attr->value = value;
@@ -2026,10 +2020,10 @@ VHTMLNode* parse_node(VHTMLArena *arena, char *buf, VHTMLNode *parent){
 
         if (!parent->children) {
             parent->children = next_child;
-            parent->_children_tail = next_child;
+            parent->last_child = next_child;
         } else {
-            parent->_children_tail->forward_sibling = next_child;
-            parent->_children_tail = next_child;
+            parent->last_child->forward_sibling = next_child;
+            parent->last_child = next_child;
         }
 
 		if(!void_tags[next_child->type] && next_child->type != _VHTMLTAG_TEXT) st_push(&tstack, next_child);
@@ -2047,36 +2041,6 @@ VHTMLNode* parse_node(VHTMLArena *arena, char *buf, VHTMLNode *parent){
     return e;
 }
 
-/* 
- * Nondestructively parses a string into a DOM tree, returning a pointer to the heap allocated document struct.
- * It is important to note that if `arena` is NULL, the document will allocate an arena itsself of size FIXME bytes
- * which would need to be freed by caller to avoid leaks.
- * */
-VHTMLDocument* document_from_string(VHTMLArena *arena, char *str){
-	int owned_arena = !arena;
-	if(owned_arena) arena = arena_init(4098);
-
-	VHTMLDocument *doc = VHTML_CALLOC(1, sizeof(VHTMLDocument));
-	if(!doc) goto cleanup;
-
-	doc->allocation = arena;
-	doc->root = create_element_t(_VHTMLTAG_ROOT, arena);
-	doc->raw_buf = strdup(str);
-	doc->owns_allocations = owned_arena;
-
-	parse_node(arena, doc->raw_buf, doc->root);
-
-	return doc;
-
-cleanup:
-	if(doc){
-		if(doc->allocation) arena_free(doc->allocation);
-		if(doc->raw_buf) VHTML_FREE(doc->raw_buf);
-		if(doc->owns_allocations) arena_free(doc->allocation);
-		VHTML_FREE(doc);
-	}
-	return NULL;
-}
 
 void free_document(VHTMLDocument *doc){
 	if(doc){
@@ -2085,10 +2049,12 @@ void free_document(VHTMLDocument *doc){
 	}
 }
 
+
+
 #define P_ATTR(v, q, fmt, ...) do { \
     char _q[] = {(q), '\0'}; \
     if (format_style == VHTMLPRINT_DEBUG) fprintf(f, "\t" fmt ": %s\n", __VA_ARGS__, (v) ? (v) : ""); \
-    else fprintf(f, " " fmt "%s%s%s%s", __VA_ARGS__, (v)?"=":"", (q)?_q:"", (v)?(v):"", (q)?_q:""); \
+    else fprintf(f, " " fmt "%s%s%s%s", __VA_ARGS__, (v)?"=":"", (q) ? _q : ((v) ? "\"" : ""), (v)?(v):"", (q) ? _q : ((v) ? "\"" : "")); \
 } while(0)
 
 static void writeNode(FILE *f, VHTMLNode *node, enum VHTMLPrintFormat format_style, int depth) {
@@ -2168,6 +2134,113 @@ char *serializeDocument(VHTMLDocument *doc, enum VHTMLPrintFormat fmt){
 	}
 
     fclose(f);
+    return buf;
+}
+
+// -------- Util Functions -----------
+
+VHTMLNode *append_child(VHTMLNode *parent, VHTMLNode *child){
+	if(!parent || !child) return NULL;
+	if(!parent->children){
+		parent->children = child; // no children case
+	} else if(parent->last_child) {
+		parent->last_child->forward_sibling = child; // append to end of ll
+	}
+	parent->last_child = child; // for fast appending
+	return child;
+}
+
+VHTMLNode *set_inner_html(VHTMLArena *arena, VHTMLNode *parent, char *str){
+	if(!parent || !str) return NULL;
+	size_t len = strlen(str) + 1;
+	void *alloc = arena_alloc(arena, len, alignof(char));
+	if(!alloc) return NULL;
+	str = memcpy(alloc, str, len);
+	parent->children = NULL;
+	return parse_node(arena, str, parent);
+}
+
+VHTMLNode *set_inner_text(VHTMLArena *arena, VHTMLNode *parent, char *str){
+	if(!parent || !arena || !str) return NULL;
+	size_t len = strlen(str) + 1;
+	void *alloc = arena_alloc(arena, len, alignof(char));
+	if(!alloc) return NULL;
+	str = memcpy(alloc, str, len);
+	VHTMLNode *textNode = create_element_t(_VHTMLTAG_TEXT, arena);
+	textNode->_text = str;
+	parent->children = textNode; // children are lost to time
+	return textNode;
+}
+
+/* 
+ * Nondestructively parses a string into a DOM tree, returning a pointer to the heap allocated document struct.
+ * It is important to note that if `arena` is NULL, the document will allocate an arena itsself of size FIXME bytes
+ * which would need to be freed by caller to avoid leaks.
+ *
+ * If no string is provided, the document is created with the standard:
+ * ```html
+ * <!DOCTYPE html>
+ * <html>
+ *	<head></head>
+ *	<body></body>
+ * </html>
+ * ```
+ * */
+VHTMLDocument* create_document(VHTMLArena *arena, char *str){
+	int owned_arena = !arena;
+	if(owned_arena) arena = arena_init(4098);
+
+	VHTMLDocument *doc = VHTML_CALLOC(1, sizeof(VHTMLDocument));
+	if(!doc) goto cleanup;
+
+	doc->allocation = arena;
+	doc->root = create_element_t(_VHTMLTAG_ROOT, arena);
+	doc->owns_allocations = owned_arena;
+
+	int errs = 0;
+	
+	if(str){
+		doc->raw_buf = strdup(str);
+		parse_node(arena, doc->raw_buf, doc->root);
+	} else { // base template
+		errs |= !append_child(doc->root, create_element_t(VHTMLTAG_DOCTYPE, arena));
+		errs |= !set_attr(arena, doc->root->children, VHTMLATTR_HTML, 0);
+		VHTMLNode *root = create_element_t(VHTMLTAG_HTML, arena);
+		errs |= !append_child(doc->root, root);
+		errs |= !append_child(root, create_element_t(VHTMLTAG_HEAD, arena));
+		errs |= !append_child(root, create_element_t(VHTMLTAG_BODY, arena));
+		doc->body = root->last_child; // last child
+		if(errs) goto cleanup;
+	}
+
+	return doc;
+
+cleanup:
+	if(doc){
+		if(doc->raw_buf) VHTML_FREE(doc->raw_buf);
+		if(doc->owns_allocations) arena_free(doc->allocation);
+		VHTML_FREE(doc);
+	}
+	return NULL;
+}
+
+// Returns heap-allocated buffer of all text in children
+char *get_text_content(VHTMLNode *node, VHTMLArena *arena) {
+    if (!node) return NULL;
+    if (node->type == _VHTMLTAG_TEXT) return node->_text;
+
+    size_t total = 0;
+    for (VHTMLNode *ch = node->children; ch; ch = ch->forward_sibling) {
+        char *t = get_text_content(ch, arena);
+        if (t) total += strlen(t);
+    }
+
+    char *buf = arena_alloc(arena, total + 1, 1);
+    buf[0] = '\0';
+    for (VHTMLNode *ch = node->children; ch; ch = ch->forward_sibling) {
+        char *t = get_text_content(ch, arena);
+        if (t) strcat(buf, t);
+    }
     return buf;
 }
 #endif /* VHTML_IMPLEMENTATION */

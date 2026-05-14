@@ -170,7 +170,7 @@ static size_t align_up(size_t n, size_t align) {
 }
 
 // Returns
-static void* arena_alloc(VHTMLArena *arena, size_t size, size_t alignment){
+static void* arena_alloc(size_t size, size_t alignment, VHTMLArena *arena){
 	if(!arena || !size) return NULL;
 	struct VHTMLArenaChunk *chunk = arena->tail;
 	size_t used = align_up(chunk->used, alignment ? alignment : alignof(max_align_t)); // align to next boundary
@@ -284,7 +284,7 @@ const char *const html_attribute_str[_VHTML_ATTRIBUTE_COUNT] = {
 	[VHTMLATTR_SPELLCHECK] = "spellcheck", [VHTMLATTR_SRC] = "src", [VHTMLATTR_SRCDOC] = "srcdoc", [VHTMLATTR_SRCLANG] = "srclang", [VHTMLATTR_SRCSET] = "srcset", 
 	[VHTMLATTR_START] = "start", [VHTMLATTR_STEP] = "step", [VHTMLATTR_STYLE] = "style", [VHTMLATTR_TABINDEX] = "tabindex", [VHTMLATTR_TARGET] = "target", [VHTMLATTR_TITLE] = "title", 
 	[VHTMLATTR_TRANSLATE] = "translate", [VHTMLATTR_TYPE] = "type", [VHTMLATTR_USEMAP] = "usemap", [VHTMLATTR_VALUE] = "value", [VHTMLATTR_WIDTH] = "width", [VHTMLATTR_WRAP] = "wrap",
-	[VHTMLATTR_XMLNS] = "xmlns", [VHTMLATTR_XMLNS_XLINK] = "xmlns:xlink"
+	[VHTMLATTR_XMLNS] = "xmlns", [VHTMLATTR_XMLNS_XLINK] = "xmlns:xlink", [VHTMLATTR_HTML] = "html"
 };
 
 const int void_tags[_VHTML_TAG_COUNT] = { //FIXME: Fill this out
@@ -315,10 +315,11 @@ VHTMLAttribute_t html_attr_from_str(char *str){
 }
 
 VHTMLNode* create_element_t(VHTMLTag_t type, VHTMLArena *arena){
-	VHTMLNode *e = arena_alloc(arena, sizeof(VHTMLNode), alignof(VHTMLNode));
+	VHTMLNode *e = arena_alloc(sizeof(VHTMLNode), alignof(VHTMLNode), arena);
 	if(!e) return NULL;
 	*e = (VHTMLNode){0};
 	e->type = type;
+	//e->arena = arena;
 	return e;
 }
 
@@ -326,20 +327,8 @@ VHTMLNode* create_element(char *name, VHTMLArena *arena){
 	return create_element_t(html_tag_from_str(name), arena);
 }
 
-// TODO:
-/*
-
-VHTMLDocument* create_document(){
-	VHTMLDocument *doc = VHTML_CALLOC(1, sizeof(VHTMLDocument));
-	if(!doc) return 0;
-	VHTMLArena *arena = arena_init(100); // TODO too small
-	doc->allocation = arena;
-	doc->root = create_element_t(VHTMLTAG_HEAD, arena);
-	return doc;
-}
-*/
-
-VHTMLAttribute* set_attr(VHTMLArena *arena, VHTMLNode *node, VHTMLAttribute_t attribute, char *value){
+VHTMLAttribute* set_attr(VHTMLNode *node, VHTMLAttribute_t attribute, char *value, VHTMLArena *arena){
+	if(!node) return NULL;
 	VHTMLAttribute* curr = node->attributes;
 	if(curr){
 		while(curr->type != attribute && curr->next) curr = curr->next;
@@ -349,7 +338,8 @@ VHTMLAttribute* set_attr(VHTMLArena *arena, VHTMLNode *node, VHTMLAttribute_t at
 		}
 	}
 
-	VHTMLAttribute* new_attr = arena_alloc(arena, sizeof(VHTMLAttribute), alignof(VHTMLAttribute));
+	VHTMLAttribute* new_attr = arena_alloc(sizeof(VHTMLAttribute), alignof(VHTMLAttribute), arena);
+	if(!new_attr) return NULL;
 	*new_attr = (VHTMLAttribute){0};
 	new_attr->type = attribute;
 	new_attr->value = value;
@@ -392,7 +382,7 @@ char *get_attr(VHTMLNode *node, VHTMLAttribute_t attribute){
  * process before being handed the buffer (i.e. it became the null-terminator for some text belonging
  * to the parent) and the buffer points to some valid character after that '<'.
  * */
-VHTMLNode* _parse_open_tag(char **buf, VHTMLArena *arena, int open_lt_consumed){
+VHTMLNode* _parse_open_tag(char **buf, int open_lt_consumed, VHTMLArena *arena){
 	char *next_char = *buf, curr_wid = 0, quote_type = 0, *resume = 0;
 	char *curr_attr, *curr_value;
 	VHTMLNode *node = NULL;
@@ -452,7 +442,7 @@ parse:
 				// last_attr to the sentinal _VHTML_ATTRIBUTE_COUNT. If it's not the sentinel, it was a bool attr
 				// and that code was never run, so we check here and set the value as nessecary
 				if(last_attr != _VHTML_ATTRIBUTE_COUNT){
-					set_attr(arena, node, last_attr, 0);
+					set_attr(node, last_attr, 0, arena);
 					last_attr = _VHTML_ATTRIBUTE_COUNT;
 				}
 				if(last_data_attr){last_data_attr->value = 0; last_data_attr = 0;}
@@ -478,7 +468,7 @@ parse:
 					//Good path
 				} else if(strncmp(curr_attr, "data-", 5) == 0) { // custom data attribute
 				// create the attribute, and set its name
-					VHTMLDataAttribute *new_attr = arena_alloc(arena, sizeof(VHTMLDataAttribute), alignof(VHTMLDataAttribute));
+					VHTMLDataAttribute *new_attr = arena_alloc(sizeof(VHTMLDataAttribute), alignof(VHTMLDataAttribute), arena);
 					*new_attr = (VHTMLDataAttribute){0};
 					VHTMLDataAttribute *da_tail = node->data_attrs;
 					if(!da_tail){ // no custom exist so far
@@ -493,7 +483,7 @@ parse:
 				} else if(
 						(xml = !strncmp(curr_attr, "xml:", 4)) || // xml is a bool
 						!strncmp(curr_attr, "xlink:", 6)){ // namespaced attribute
-					VHTMLNamespacedAttribute *new_attr = arena_alloc(arena, sizeof(VHTMLNamespacedAttribute), alignof(VHTMLNamespacedAttribute));
+					VHTMLNamespacedAttribute *new_attr = arena_alloc(sizeof(VHTMLNamespacedAttribute), alignof(VHTMLNamespacedAttribute), arena);
 					*new_attr = (VHTMLNamespacedAttribute){0};
 					VHTMLNamespacedAttribute *ns_tail = node->ns_attrs;
 					if(!ns_tail) {node->ns_attrs = new_attr;}
@@ -507,7 +497,7 @@ parse:
 					new_attr->name = curr_attr + (xml ? 4 : 6); // cut out "xml"/"xlink" part
 					last_ns_attr = new_attr;
 				} else { // treat as a defined attribute
-					VHTMLUnknownAttribute *new_attr = arena_alloc(arena, sizeof(VHTMLUnknownAttribute), alignof(VHTMLUnknownAttribute));
+					VHTMLUnknownAttribute *new_attr = arena_alloc(sizeof(VHTMLUnknownAttribute), alignof(VHTMLUnknownAttribute), arena);
 					*new_attr = (VHTMLUnknownAttribute){0};
 					VHTMLUnknownAttribute *unk_tail = node->unk_attrs;
 					if(!unk_tail) {node->unk_attrs = new_attr;}
@@ -569,7 +559,7 @@ parse:
 				**buf = '\0'; // inplace nullterm of attribute name
 
 				// put the value string in the appropriate attrib
-				if(last_attr != _VHTML_ATTRIBUTE_COUNT) set_attr(arena, node, last_attr, curr_value)->quoted = quote_type;
+				if(last_attr != _VHTML_ATTRIBUTE_COUNT) set_attr(node, last_attr, curr_value, arena)->quoted = quote_type;
 				if(last_data_attr) last_data_attr->value = curr_value, last_data_attr->quoted = quote_type;
 				if(last_ns_attr) last_ns_attr->value = curr_value, last_ns_attr->quoted = quote_type;
 				if(last_unk_attr) last_unk_attr->value = curr_value, last_unk_attr->quoted = quote_type;
@@ -603,7 +593,7 @@ parse:
 	return node;
 }
 
-static inline VHTMLNode *text_node(VHTMLArena *arena, char **buf, int *overwrote_open){
+static inline VHTMLNode *text_node(char **buf, int *overwrote_open, VHTMLArena *arena){
 	char *next_tag = strchr(*buf, '<');
 	if(next_tag == *buf) return NULL; // immediately is a new element
 	VHTMLNode *node = create_element_t(_VHTMLTAG_TEXT, arena);
@@ -670,7 +660,7 @@ static inline VHTMLTag_t _parse_close_tag(char **buf){
  * @param parent - if parent is not NULL, parent becomes the stack sentinel
  *	and the first open tag is treated as the child of it
  * */
-VHTMLNode* parse_node(VHTMLArena *arena, char *buf, VHTMLNode *parent){
+VHTMLNode* parse_node(char *buf, VHTMLNode *parent, VHTMLArena *arena){
     if(!arena) arena = arena_init(256);
 
     struct TAGSTACK tstack = {
@@ -682,7 +672,7 @@ VHTMLNode* parse_node(VHTMLArena *arena, char *buf, VHTMLNode *parent){
 	VHTMLNode *e = parent;
 
 	if(!e){
-		e = _parse_open_tag(&buf, arena, 0); // root parent
+		e = _parse_open_tag(&buf, 0, arena); // root parent
 		if (!e) { VHTML_FREE(tstack.stack); return NULL; }
 	}
 	st_push(&tstack, e);
@@ -705,7 +695,7 @@ VHTMLNode* parse_node(VHTMLArena *arena, char *buf, VHTMLNode *parent){
 				consumed_lt = 0;
 			    continue;
 			} else { // normal open tag
-				next_child = _parse_open_tag(&buf, arena, 1);
+				next_child = _parse_open_tag(&buf, 1, arena);
 			}
 		} else if (*buf == '<'){
 			buf ++;
@@ -717,11 +707,11 @@ VHTMLNode* parse_node(VHTMLArena *arena, char *buf, VHTMLNode *parent){
                 if (tstack.top < 0) break;
                 continue;
 			} else {
-				next_child = _parse_open_tag(&buf, arena, 1);
+				next_child = _parse_open_tag(&buf, 1, arena);
 			}
 		} else {
 			// text
-			next_child = text_node(arena, &buf, &consumed_lt);
+			next_child = text_node(&buf, &consumed_lt, arena);
 			if(consumed_lt) buf++;
 		}
 
@@ -732,10 +722,10 @@ VHTMLNode* parse_node(VHTMLArena *arena, char *buf, VHTMLNode *parent){
 
         if (!parent->children) {
             parent->children = next_child;
-            parent->_children_tail = next_child;
+            parent->last_child = next_child;
         } else {
-            parent->_children_tail->forward_sibling = next_child;
-            parent->_children_tail = next_child;
+            parent->last_child->forward_sibling = next_child;
+            parent->last_child = next_child;
         }
 
 		if(!void_tags[next_child->type] && next_child->type != _VHTMLTAG_TEXT) st_push(&tstack, next_child);
@@ -753,36 +743,6 @@ VHTMLNode* parse_node(VHTMLArena *arena, char *buf, VHTMLNode *parent){
     return e;
 }
 
-/* 
- * Nondestructively parses a string into a DOM tree, returning a pointer to the heap allocated document struct.
- * It is important to note that if `arena` is NULL, the document will allocate an arena itsself of size FIXME bytes
- * which would need to be freed by caller to avoid leaks.
- * */
-VHTMLDocument* document_from_string(VHTMLArena *arena, char *str){
-	int owned_arena = !arena;
-	if(owned_arena) arena = arena_init(4098);
-
-	VHTMLDocument *doc = VHTML_CALLOC(1, sizeof(VHTMLDocument));
-	if(!doc) goto cleanup;
-
-	doc->allocation = arena;
-	doc->root = create_element_t(_VHTMLTAG_ROOT, arena);
-	doc->raw_buf = strdup(str);
-	doc->owns_allocations = owned_arena;
-
-	parse_node(arena, doc->raw_buf, doc->root);
-
-	return doc;
-
-cleanup:
-	if(doc){
-		if(doc->allocation) arena_free(doc->allocation);
-		if(doc->raw_buf) VHTML_FREE(doc->raw_buf);
-		if(doc->owns_allocations) arena_free(doc->allocation);
-		VHTML_FREE(doc);
-	}
-	return NULL;
-}
 
 void free_document(VHTMLDocument *doc){
 	if(doc){
@@ -791,10 +751,12 @@ void free_document(VHTMLDocument *doc){
 	}
 }
 
+
+
 #define P_ATTR(v, q, fmt, ...) do { \
     char _q[] = {(q), '\0'}; \
     if (format_style == VHTMLPRINT_DEBUG) fprintf(f, "\t" fmt ": %s\n", __VA_ARGS__, (v) ? (v) : ""); \
-    else fprintf(f, " " fmt "%s%s%s%s", __VA_ARGS__, (v)?"=":"", (q)?_q:"", (v)?(v):"", (q)?_q:""); \
+    else fprintf(f, " " fmt "%s%s%s%s", __VA_ARGS__, (v)?"=":"", (q) ? _q : ((v) ? "\"" : ""), (v)?(v):"", (q) ? _q : ((v) ? "\"" : "")); \
 } while(0)
 
 static void writeNode(FILE *f, VHTMLNode *node, enum VHTMLPrintFormat format_style, int depth) {
@@ -874,5 +836,112 @@ char *serializeDocument(VHTMLDocument *doc, enum VHTMLPrintFormat fmt){
 	}
 
     fclose(f);
+    return buf;
+}
+
+// -------- Util Functions -----------
+
+VHTMLNode *append_child(VHTMLNode *parent, VHTMLNode *child){
+	if(!parent || !child) return NULL;
+	if(!parent->children){
+		parent->children = child; // no children case
+	} else if(parent->last_child) {
+		parent->last_child->forward_sibling = child; // append to end of ll
+	}
+	parent->last_child = child; // for fast appending
+	return child;
+}
+
+VHTMLNode *set_inner_html(VHTMLNode *parent, char *str, VHTMLArena *arena){
+	if(!parent || !str) return NULL;
+	size_t len = strlen(str) + 1;
+	void *alloc = arena_alloc(len, alignof(char), arena);
+	if(!alloc) return NULL;
+	str = memcpy(alloc, str, len);
+	parent->children = NULL;
+	return parse_node(str, parent, arena);
+}
+
+VHTMLNode *set_inner_text(VHTMLNode *parent, char *str, VHTMLArena *arena){
+	if(!parent || !arena || !str) return NULL;
+	size_t len = strlen(str) + 1;
+	void *alloc = arena_alloc(len, alignof(char), arena);
+	if(!alloc) return NULL;
+	str = memcpy(alloc, str, len);
+	VHTMLNode *textNode = create_element_t(_VHTMLTAG_TEXT, arena);
+	textNode->_text = str;
+	parent->children = textNode; // children are lost to time
+	return textNode;
+}
+
+/* 
+ * Nondestructively parses a string into a DOM tree, returning a pointer to the heap allocated document struct.
+ * It is important to note that if `arena` is NULL, the document will allocate an arena itsself of size FIXME bytes
+ * which would need to be freed by caller to avoid leaks.
+ *
+ * If no string is provided, the document is created with the standard:
+ * ```html
+ * <!DOCTYPE html>
+ * <html>
+ *	<head></head>
+ *	<body></body>
+ * </html>
+ * ```
+ * */
+VHTMLDocument* create_document(char *str, VHTMLArena *arena){
+	int owned_arena = !arena;
+	if(owned_arena) arena = arena_init(4098);
+
+	VHTMLDocument *doc = VHTML_CALLOC(1, sizeof(VHTMLDocument));
+	if(!doc) goto cleanup;
+
+	doc->allocation = arena;
+	doc->root = create_element_t(_VHTMLTAG_ROOT, arena);
+	doc->owns_allocations = owned_arena;
+
+	int errs = 0;
+	
+	if(str){
+		doc->raw_buf = strdup(str);
+		parse_node(doc->raw_buf, doc->root, arena);
+	} else { // base template
+		errs |= !append_child(doc->root, create_element_t(VHTMLTAG_DOCTYPE, arena));
+		errs |= !set_attr(doc->root->children, VHTMLATTR_HTML, 0, arena);
+		VHTMLNode *root = create_element_t(VHTMLTAG_HTML, arena);
+		errs |= !append_child(doc->root, root);
+		errs |= !append_child(root, create_element_t(VHTMLTAG_HEAD, arena));
+		errs |= !append_child(root, create_element_t(VHTMLTAG_BODY, arena));
+		doc->body = root->last_child; // last child
+		if(errs) goto cleanup;
+	}
+
+	return doc;
+
+cleanup:
+	if(doc){
+		if(doc->raw_buf) VHTML_FREE(doc->raw_buf);
+		if(doc->owns_allocations) arena_free(doc->allocation);
+		VHTML_FREE(doc);
+	}
+	return NULL;
+}
+
+// Returns heap-allocated buffer of all text in children
+char *get_text_content(VHTMLNode *node, VHTMLArena *arena) {
+    if (!node) return NULL;
+    if (node->type == _VHTMLTAG_TEXT) return node->_text;
+
+    size_t total = 0;
+    for (VHTMLNode *ch = node->children; ch; ch = ch->forward_sibling) {
+        char *t = get_text_content(ch, arena);
+        if (t) total += strlen(t);
+    }
+
+    char *buf = arena_alloc(total + 1, 1, arena);
+    buf[0] = '\0';
+    for (VHTMLNode *ch = node->children; ch; ch = ch->forward_sibling) {
+        char *t = get_text_content(ch, arena);
+        if (t) strcat(buf, t);
+    }
     return buf;
 }
