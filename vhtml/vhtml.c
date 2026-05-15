@@ -654,12 +654,6 @@ static inline VHTMLTag_t _parse_close_tag(char **buf){
 	return html_tag_from_str(start);
 }
 
-/*
- * Destructively parses `buf` into a node allocated to `arena`
- *
- * @param parent - if parent is not NULL, parent becomes the stack sentinel
- *	and the first open tag is treated as the child of it
- * */
 VHTMLNode* parse_node(char *buf, VHTMLNode *parent, VHTMLArena *arena){
     if(!arena) arena = arena_init(256);
 
@@ -724,7 +718,7 @@ VHTMLNode* parse_node(char *buf, VHTMLNode *parent, VHTMLArena *arena){
             parent->children = next_child;
             parent->last_child = next_child;
         } else {
-            parent->last_child->forward_sibling = next_child;
+            parent->last_child->_next_sib = next_child;
             parent->last_child = next_child;
         }
 
@@ -747,11 +741,10 @@ VHTMLNode* parse_node(char *buf, VHTMLNode *parent, VHTMLArena *arena){
 void free_document(VHTMLDocument *doc){
 	if(doc){
 		if(doc->raw_buf) VHTML_FREE(doc->raw_buf);
+		if(doc->owns_allocations) arena_free(doc->allocation);
 		VHTML_FREE(doc);
 	}
 }
-
-
 
 #define P_ATTR(v, q, fmt, ...) do { \
     char _q[] = {(q), '\0'}; \
@@ -792,7 +785,7 @@ static void writeNode(FILE *f, VHTMLNode *node, enum VHTMLPrintFormat format_sty
     if (format_style != VHTMLPRINT_DEBUG) fprintf(f, ">%s", format_style == VHTMLPRINT_PRETTY ? "\n" : "");
 
     // children
-    for (VHTMLNode *ch = node->children; ch; ch = ch->forward_sibling)
+    for (VHTMLNode *ch = node->children; ch; ch = ch->_next_sib)
         writeNode(f, ch, format_style, depth + 1);
 
     // close tag (no void)
@@ -832,7 +825,7 @@ char *serializeDocument(VHTMLDocument *doc, enum VHTMLPrintFormat fmt){
 
 	while(current){
 		writeNode(f, current, fmt, 0);
-		current = current->forward_sibling;
+		current = current->_next_sib;
 	}
 
     fclose(f);
@@ -846,7 +839,7 @@ VHTMLNode *append_child(VHTMLNode *parent, VHTMLNode *child){
 	if(!parent->children){
 		parent->children = child; // no children case
 	} else if(parent->last_child) {
-		parent->last_child->forward_sibling = child; // append to end of ll
+		parent->last_child->_next_sib = child; // append to end of ll
 	}
 	parent->last_child = child; // for fast appending
 	return child;
@@ -874,20 +867,6 @@ VHTMLNode *set_inner_text(VHTMLNode *parent, char *str, VHTMLArena *arena){
 	return textNode;
 }
 
-/* 
- * Nondestructively parses a string into a DOM tree, returning a pointer to the heap allocated document struct.
- * It is important to note that if `arena` is NULL, the document will allocate an arena itsself of size FIXME bytes
- * which would need to be freed by caller to avoid leaks.
- *
- * If no string is provided, the document is created with the standard:
- * ```html
- * <!DOCTYPE html>
- * <html>
- *	<head></head>
- *	<body></body>
- * </html>
- * ```
- * */
 VHTMLDocument* create_document(char *str, VHTMLArena *arena){
 	int owned_arena = !arena;
 	if(owned_arena) arena = arena_init(4098);
@@ -926,20 +905,19 @@ cleanup:
 	return NULL;
 }
 
-// Returns heap-allocated buffer of all text in children
 char *get_text_content(VHTMLNode *node, VHTMLArena *arena) {
     if (!node) return NULL;
     if (node->type == _VHTMLTAG_TEXT) return node->_text;
 
     size_t total = 0;
-    for (VHTMLNode *ch = node->children; ch; ch = ch->forward_sibling) {
+    for (VHTMLNode *ch = node->children; ch; ch = ch->_next_sib) {
         char *t = get_text_content(ch, arena);
         if (t) total += strlen(t);
     }
 
     char *buf = arena_alloc(total + 1, 1, arena);
     buf[0] = '\0';
-    for (VHTMLNode *ch = node->children; ch; ch = ch->forward_sibling) {
+    for (VHTMLNode *ch = node->children; ch; ch = ch->_next_sib) {
         char *t = get_text_content(ch, arena);
         if (t) strcat(buf, t);
     }

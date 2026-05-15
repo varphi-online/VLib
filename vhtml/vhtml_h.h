@@ -156,15 +156,15 @@ typedef struct VHTMLUnknownAttribute {
 
 typedef struct VHTMLNode {
 	VHTMLTag_t type;
-	struct VHTMLNode *children;
-	struct VHTMLNode *last_child;
-	struct VHTMLNode *parent;
-	struct VHTMLAttribute *attributes;
-	struct VHTMLDataAttribute *data_attrs;
-	struct VHTMLNamespacedAttribute *ns_attrs;
-	struct VHTMLUnknownAttribute *unk_attrs;
 	char *_text;
-	struct VHTMLNode *forward_sibling;
+	struct VHTMLNode *children;					// Linked-List head of children in order
+	struct VHTMLNode *last_child;				// End of children linked-list
+	struct VHTMLNode *parent;
+	struct VHTMLAttribute *attributes;			// Linked-List of defined HTML attributes
+	struct VHTMLDataAttribute *data_attrs;		// data-* attributes
+	struct VHTMLNamespacedAttribute *ns_attrs;	// Namespaced attributes
+	struct VHTMLUnknownAttribute *unk_attrs;	// Unknown attributes are allowed by HTML5 spec
+	struct VHTMLNode *_next_sib;				// Used for linked list
 } VHTMLNode;
 
 typedef struct VHTMLDocument {
@@ -175,11 +175,22 @@ typedef struct VHTMLDocument {
 	VHTMLNode *body;
 } VHTMLDocument;
 
+// Index into this using a VHTMLTAG_* enum to get a string representation
+// of that value
 extern const char *const html_element_str[];
+// Index into this using a VHTMLATTR_* enum to get a string representation
+// of that value
 extern const char *const html_attribute_str[];
 
 VHTMLNode* create_element_t(VHTMLTag_t type, VHTMLArena *arena);
 VHTMLNode* create_element(char *name, VHTMLArena *arena);
+
+/*
+ * Destructively parses `buf` into a node allocated to `arena`
+ *
+ * @param parent - if parent is not NULL, parent becomes the stack sentinel
+ *	and the first open tag is treated as the child of it
+ * */
 VHTMLNode* parse_node(char *buf, VHTMLNode *parent, VHTMLArena *arena);
 
 // Sets an attribute to some heap/arena allocated value for some node, 0 implying a
@@ -188,7 +199,22 @@ VHTMLAttribute* set_attr(VHTMLNode *node, VHTMLAttribute_t attribute, char *valu
 void unset_attr(VHTMLNode *node, VHTMLAttribute_t attribute);
 char* get_attr(VHTMLNode *node, VHTMLAttribute_t attribute);
 
+/* 
+ * Nondestructively parses a string into a DOM tree, returning a pointer to the heap allocated document struct.
+ * It is important to note that if `arena` is NULL, the document will allocate an arena itsself of size FIXME bytes
+ * which would need to be freed by caller to avoid leaks.
+ *
+ * If no string is provided, the document is created with the standard:
+ * ```html
+ * <!DOCTYPE html>
+ * <html>
+ *	<head></head>
+ *	<body></body>
+ * </html>
+ * ```
+ * */
 VHTMLDocument* create_document(char *str, VHTMLArena *arena);
+
 void free_document(VHTMLDocument *doc);
 
 enum VHTMLPrintFormat {
@@ -202,8 +228,17 @@ char *serializeNode(VHTMLNode *node, enum VHTMLPrintFormat fmt);
 
 
 VHTMLNode *append_child(VHTMLNode *parent, VHTMLNode *child);
+
+/* This Library assumes that all strings are owned by the same arena as the
+ * parent node because parsing is destrcutive. If instead direct memory management
+ * is required, call the function twice, with `arena` set to NULL the first time
+ * to indicate that the string pointer will remain valid for lifetime of the parent
+ * node.
+ */
 VHTMLNode *set_inner_html(VHTMLNode *parent, char *str, VHTMLArena *arena);
 VHTMLNode *set_inner_text(VHTMLNode *parent, char *str, VHTMLArena *arena);
+
+// Returns heap-allocated buffer of all text in children
 char *get_text_content(VHTMLNode *node, VHTMLArena *arena);
 
 char *serializeDocument(VHTMLDocument *doc, enum VHTMLPrintFormat fmt);
